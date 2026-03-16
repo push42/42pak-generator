@@ -2,10 +2,7 @@
 (function () {
   'use strict';
 
-  // ── C# bridge ──
   const B = () => window.chrome.webview.hostObjects.sync.bridge;
-
-  // ── DOM refs ──
   const $ = (s, ctx) => (ctx || document).querySelector(s);
   const $$ = (s, ctx) => (ctx || document).querySelectorAll(s);
 
@@ -24,7 +21,10 @@
     bindManage();
     bindConvert();
     bindSettings();
+    bindKeyboard();
+    bindDragDrop();
     loadPrefs();
+    loadRecentFiles();
   });
 
   function switchView(id) {
@@ -34,40 +34,56 @@
     $('#search-wrap').style.display = id === 'manage' ? '' : 'none';
   }
 
+  // ── TOAST ──
+  function toast(msg, type) {
+    type = type || 'info';
+    var icons = { success: 'fa-circle-check', error: 'fa-circle-xmark', info: 'fa-circle-info' };
+    var el = document.createElement('div');
+    el.className = 'toast toast-' + type;
+    el.innerHTML = '<i class="fa-solid ' + (icons[type] || icons.info) + '"></i>' +
+      '<span class="toast-msg">' + escapeHtml(msg) + '</span>' +
+      '<button class="toast-close" onclick="this.parentElement.classList.add(\'toast-out\')">&times;</button>';
+    $('#toast-container').appendChild(el);
+    setTimeout(function () {
+      el.classList.add('toast-out');
+      setTimeout(function () { el.remove(); }, 250);
+    }, 4000);
+  }
+
   // ── CREATE ──
   function bindCreate() {
-    $('#c-enc').addEventListener('change', () => {
+    $('#c-enc').addEventListener('change', function () {
       $('#c-pass-fields').style.display = $('#c-enc').checked ? '' : 'none';
     });
-    $('#c-comp').addEventListener('input', () => {
+    $('#c-comp').addEventListener('input', function () {
       $('#c-comp-val').textContent = $('#c-comp').value;
     });
   }
 
   window.pickSourceFolder = function () {
-    const path = B().PickFolder();
+    var path = B().PickFolder();
     if (path) $('#c-src').value = path;
   };
 
   window.pickOutputFile = function () {
-    const path = B().PickSaveFile('VPK Archive (*.vpk)|*.vpk', '.vpk');
+    var path = B().PickSaveFile('VPK Archive (*.vpk)|*.vpk', '.vpk');
     if (path) $('#c-out').value = path;
   };
 
   window.buildVpk = function () {
-    const src = $('#c-src').value.trim();
-    const out = $('#c-out').value.trim();
+    var src = $('#c-src').value.trim();
+    var out = $('#c-out').value.trim();
     if (!src || !out) return modal('Missing Fields', 'Select both a source folder and output path.');
 
-    const enc = $('#c-enc').checked;
+    var enc = $('#c-enc').checked;
     if (enc) {
-      const p1 = $('#c-pass').value;
-      const p2 = $('#c-pass2').value;
+      var p1 = $('#c-pass').value;
+      var p2 = $('#c-pass2').value;
       if (p1.length < 8) return modal('Weak Passphrase', 'Passphrase must be at least 8 characters.');
       if (p1 !== p2) return modal('Mismatch', 'Passphrases do not match.');
     }
 
-    const opts = JSON.stringify({
+    var opts = JSON.stringify({
       passphrase: enc ? $('#c-pass').value : null,
       compressionLevel: parseInt($('#c-comp').value, 10),
       compressionAlgorithm: $('#c-algo').value,
@@ -76,18 +92,17 @@
       comment: $('#c-comment').value.trim() || null
     });
 
-    const btn = $('#btn-build');
+    var btn = $('#btn-build');
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Building...';
-
     showProgress();
 
-    setTimeout(() => {
+    setTimeout(function () {
       try {
-        const r = JSON.parse(B().BuildVpk(src, out, opts));
+        var r = JSON.parse(B().BuildVpk(src, out, opts));
         hideProgress();
         if (r.success) {
-          modal('Build Complete', r.message);
+          toast(r.message, 'success');
         } else {
           modal('Build Failed', r.message);
         }
@@ -102,7 +117,7 @@
   };
 
   function showProgress() {
-    const el = $('#c-progress');
+    var el = $('#c-progress');
     el.style.display = '';
     $('#c-progress-fill').style.width = '0%';
     $('#c-progress-txt').textContent = '';
@@ -110,17 +125,17 @@
   }
 
   function hideProgress() {
-    const el = $('#c-progress');
     $('#c-progress-fill').style.width = '100%';
     $('#c-progress-txt').textContent = '100%';
-    setTimeout(() => { el.style.display = 'none'; }, 400);
+    clearInterval(_progTimer);
+    setTimeout(function () { $('#c-progress').style.display = 'none'; }, 400);
   }
 
-  let _progTimer = null;
+  var _progTimer = null;
   function animateProgress() {
-    let pct = 0;
+    var pct = 0;
     clearInterval(_progTimer);
-    _progTimer = setInterval(() => {
+    _progTimer = setInterval(function () {
       pct = Math.min(pct + Math.random() * 8, 90);
       $('#c-progress-fill').style.width = pct + '%';
       $('#c-progress-txt').textContent = Math.round(pct) + '%';
@@ -128,35 +143,43 @@
   }
 
   // ── MANAGE ──
-  let _allEntries = [];
+  var _allEntries = [];
+  var _openPassphrase = '';
 
   function bindManage() {
     $('#search-input').addEventListener('input', filterEntries);
   }
 
   window.openVpkFile = function () {
-    const path = B().PickFile('VPK Archive (*.vpk)|*.vpk');
+    var path = B().PickFile('VPK Archive (*.vpk)|*.vpk');
     if (!path) return;
+    var pass = prompt('Enter passphrase (leave blank if none):') || '';
+    openVpkByPath(path, pass);
+  };
 
-    const pass = prompt('Enter passphrase (leave blank if none):') || '';
+  function openVpkByPath(path, pass) {
     try {
-      const r = JSON.parse(B().OpenVpk(path, pass));
+      var r = JSON.parse(B().OpenVpk(path, pass));
       if (!r.success) return modal('Open Failed', r.message);
+      _openPassphrase = pass;
       displayArchive(r);
+      loadRecentFiles();
+      switchView('manage');
+      toast('Opened ' + path.split('\\').pop(), 'success');
     } catch (e) {
       modal('Error', e.message || String(e));
     }
-  };
+  }
 
   function displayArchive(data) {
-    const h = data.header;
-    const meta = $('#archive-meta');
+    var h = data.header;
+    var meta = $('#archive-meta');
     meta.style.display = '';
     meta.innerHTML = [
       mp('Version', h.Version),
       mp('Files', h.EntryCount),
       mp('Encrypted', h.IsEncrypted ? 'Yes' : 'No'),
-      mp('Compression', h.CompressionAlgorithm || 'LZ4'),
+      mp('Algorithm', h.CompressionAlgorithm || 'LZ4'),
       mp('Level', h.CompressionLevel),
       mp('Mangled', h.FileNamesMangled ? 'Yes' : 'No'),
       mp('Author', h.Author || '—'),
@@ -165,9 +188,29 @@
 
     _allEntries = data.entries || [];
     renderEntries(_allEntries);
-
+    loadArchiveStats();
+    $('#recent-panel').style.display = 'none';
     $('#btn-extract').disabled = false;
     $('#btn-validate').disabled = false;
+  }
+
+  function loadArchiveStats() {
+    try {
+      var r = JSON.parse(B().GetArchiveStats());
+      if (!r.success) return;
+      var bar = $('#archive-stats');
+      bar.style.display = '';
+      bar.innerHTML =
+        stat('Total Files', r.totalFiles) +
+        stat('Original', formatSize(r.totalOriginal)) +
+        stat('Compressed', formatSize(r.totalStored)) +
+        stat('Ratio', r.overallRatio + '%') +
+        stat('Archive Size', formatSize(r.archiveSize));
+    } catch (_) {}
+  }
+
+  function stat(label, val) {
+    return '<span class="stat"><span class="stat-label">' + label + '</span> <span class="stat-val">' + escapeHtml(String(val)) + '</span></span>';
   }
 
   function mp(label, val) {
@@ -175,49 +218,66 @@
   }
 
   function renderEntries(entries) {
-    const list = $('#file-list');
+    var list = $('#file-list');
     if (!entries.length) {
       list.innerHTML = '<div class="empty-msg"><i class="fa-solid fa-box-open"></i><p>No files in archive.</p></div>';
       return;
     }
-    list.innerHTML = entries.map(e => {
-      const tags = [];
+    list.innerHTML = entries.map(function (e, idx) {
+      var tags = [];
       if (e.IsEncrypted) tags.push('<span class="f-tag enc">ENC</span>');
-      if (e.IsCompressed) tags.push('<span class="f-tag lz4">LZ4</span>');
+      var algoTag = e.IsCompressed ? (e.compressionAlgorithm || 'LZ4') : '';
+      if (algoTag) tags.push('<span class="f-tag lz4">' + escapeHtml(algoTag) + '</span>');
+      var ratio = e.ratio != null ? e.ratio : (e.OriginalSize > 0 ? Math.round((1 - e.StoredSize / e.OriginalSize) * 1000) / 10 : 0);
       return '<div class="file-row">' +
         '<span class="f-icon"><i class="' + getFileIcon(e.FileName) + '"></i></span>' +
         '<span class="f-name" title="' + escapeHtml(e.FileName) + '">' + escapeHtml(e.FileName) + '</span>' +
         tags.join('') +
+        '<span class="f-ratio">' + ratio + '%</span>' +
         '<span class="f-size">' + formatSize(e.OriginalSize) + '</span>' +
+        '<span class="f-actions"><button onclick="extractSingleFile(\'' + escapeAttr(e.FileName) + '\')"><i class="fa-solid fa-download"></i> Extract</button></span>' +
         '</div>';
     }).join('');
   }
 
   function filterEntries() {
-    const q = $('#search-input').value.toLowerCase();
+    var q = $('#search-input').value.toLowerCase();
     if (!q) return renderEntries(_allEntries);
-    renderEntries(_allEntries.filter(e => e.FileName.toLowerCase().includes(q)));
+    renderEntries(_allEntries.filter(function (e) { return e.FileName.toLowerCase().indexOf(q) >= 0; }));
   }
 
-  window.extractAllFiles = function () {
-    const dir = B().PickFolder();
+  window.extractSingleFile = function (fileName) {
+    var dir = B().PickFolder();
     if (!dir) return;
-    const pass = prompt('Passphrase (blank if none):') || '';
     try {
-      const r = JSON.parse(B().ExtractAll(dir, pass));
-      modal(r.success ? 'Extracted' : 'Error', r.message);
+      var r = JSON.parse(B().ExtractSingleFile(fileName, dir, _openPassphrase));
+      if (r.success) toast('Extracted ' + fileName, 'success');
+      else modal('Error', r.message);
+    } catch (e) {
+      modal('Error', e.message || String(e));
+    }
+  };
+
+  window.extractAllFiles = function () {
+    var dir = B().PickFolder();
+    if (!dir) return;
+    var pass = _openPassphrase || (prompt('Passphrase (blank if none):') || '');
+    try {
+      var r = JSON.parse(B().ExtractAll(dir, pass));
+      if (r.success) toast(r.message, 'success');
+      else modal('Error', r.message);
     } catch (e) {
       modal('Error', e.message || String(e));
     }
   };
 
   window.validateArchive = function () {
-    const pass = prompt('Passphrase (blank if none):') || '';
+    var pass = _openPassphrase || (prompt('Passphrase (blank if none):') || '');
     try {
-      const r = JSON.parse(B().ValidateVpk(pass));
+      var r = JSON.parse(B().ValidateVpk(pass));
       if (!r.success) return modal('Error', r.message);
       if (r.isValid) {
-        modal('Valid', 'Archive integrity verified. ' + r.validFiles + ' files OK.');
+        toast('Archive valid — ' + r.validFiles + ' files OK.', 'success');
       } else {
         modal('Integrity Issues', 'Errors found:\n' + (r.errors || []).join('\n'));
       }
@@ -226,15 +286,40 @@
     }
   };
 
+  // ── RECENT FILES ──
+  function loadRecentFiles() {
+    try {
+      var r = JSON.parse(B().GetRecentFiles());
+      var list = $('#recent-list');
+      if (!r.success || !r.files || !r.files.length) {
+        list.innerHTML = '<div class="empty-msg"><i class="fa-solid fa-clock-rotate-left"></i><p>No recent files.</p></div>';
+        return;
+      }
+      list.innerHTML = r.files.map(function (f) {
+        var name = f.split('\\').pop();
+        return '<div class="recent-item" onclick="openRecentFile(\'' + escapeAttr(f) + '\')">' +
+          '<i class="fa-solid fa-box-archive"></i>' +
+          '<span class="recent-name">' + escapeHtml(name) + '</span>' +
+          '<span class="recent-path" title="' + escapeHtml(f) + '">' + escapeHtml(f) + '</span>' +
+          '</div>';
+      }).join('');
+    } catch (_) {}
+  }
+
+  window.openRecentFile = function (path) {
+    var pass = prompt('Enter passphrase (leave blank if none):') || '';
+    openVpkByPath(path, pass);
+  };
+
   // ── CONVERT ──
   function bindConvert() {
-    $('#cv-enc').addEventListener('change', () => {
+    $('#cv-enc').addEventListener('change', function () {
       $('#cv-pass-row').style.display = $('#cv-enc').checked ? '' : 'none';
     });
   }
 
   window.pickEixFile = function () {
-    const path = B().PickFile('EIX Index (*.eix)|*.eix');
+    var path = B().PickFile('EIX Index (*.eix)|*.eix');
     if (!path) return;
     $('#cv-eix').value = path;
     loadEixPreview(path);
@@ -242,12 +327,12 @@
 
   function loadEixPreview(eixPath) {
     try {
-      const r = JSON.parse(B().ReadEixListing(eixPath));
+      var r = JSON.parse(B().ReadEixListing(eixPath));
       if (!r.success) return;
-      const grid = $('#eix-grid');
+      var grid = $('#eix-grid');
       $('#eix-preview').style.display = '';
-      grid.innerHTML = r.entries.map(e => {
-        const tags = [];
+      grid.innerHTML = r.entries.map(function (e) {
+        var tags = [];
         if (!e.canExtract) tags.push('<span class="f-tag warn">ENCRYPTED</span>');
         return '<div class="file-row">' +
           '<span class="f-icon"><i class="' + getFileIcon(e.FileName) + '"></i></span>' +
@@ -260,37 +345,37 @@
   }
 
   window.pickConvertOutput = function () {
-    const path = B().PickSaveFile('VPK Archive (*.vpk)|*.vpk', '.vpk');
+    var path = B().PickSaveFile('VPK Archive (*.vpk)|*.vpk', '.vpk');
     if (path) $('#cv-out').value = path;
   };
 
   window.convertPak = function () {
-    const eix = $('#cv-eix').value.trim();
-    const out = $('#cv-out').value.trim();
+    var eix = $('#cv-eix').value.trim();
+    var out = $('#cv-out').value.trim();
     if (!eix || !out) return modal('Missing Fields', 'Select both .eix input and .vpk output.');
 
-    const opts = JSON.stringify({
+    var opts = JSON.stringify({
       passphrase: $('#cv-enc').checked ? $('#cv-pass').value : null,
       compressionLevel: parseInt($('#c-comp').value, 10)
     });
 
-    const btn = $('#btn-convert');
+    var btn = $('#btn-convert');
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Converting...';
 
-    const log = $('#cv-log');
+    var log = $('#cv-log');
     log.style.display = '';
     $('#cv-log-txt').textContent = 'Starting conversion...\n';
 
-    setTimeout(() => {
+    setTimeout(function () {
       try {
-        const r = JSON.parse(B().ConvertEixEpk(eix, out, opts));
+        var r = JSON.parse(B().ConvertEixEpk(eix, out, opts));
         if (r.success) {
           appendLog('Converted: ' + r.convertedFiles + '/' + r.totalEntries + ' files');
           if (r.skippedFiles > 0) appendLog('Skipped: ' + r.skippedFiles + ' (encrypted)');
-          if (r.errors && r.errors.length) r.errors.forEach(e => appendLog('ERR: ' + e));
+          if (r.errors && r.errors.length) r.errors.forEach(function (e) { appendLog('ERR: ' + e); });
           appendLog('Done.');
-          modal('Conversion Complete', r.convertedFiles + ' of ' + r.totalEntries + ' files converted.');
+          toast(r.convertedFiles + ' of ' + r.totalEntries + ' files converted.', 'success');
         } else {
           appendLog('FAILED: ' + r.message);
           modal('Error', r.message);
@@ -306,21 +391,21 @@
   };
 
   function appendLog(msg) {
-    const el = $('#cv-log-txt');
+    var el = $('#cv-log-txt');
     el.textContent += msg + '\n';
     el.scrollTop = el.scrollHeight;
   }
 
   // ── SETTINGS ──
   function bindSettings() {
-    $('#s-comp').addEventListener('input', () => {
+    $('#s-comp').addEventListener('input', function () {
       $('#s-comp-val').textContent = $('#s-comp').value;
     });
   }
 
   function loadPrefs() {
     try {
-      const p = JSON.parse(localStorage.getItem('42pak_prefs') || '{}');
+      var p = JSON.parse(localStorage.getItem('42pak_prefs') || '{}');
       if (p.darkMode === false) {
         document.body.classList.add('light');
         $('#s-dark').checked = false;
@@ -352,6 +437,56 @@
     savePrefs();
   };
 
+  // ── KEYBOARD SHORTCUTS ──
+  function bindKeyboard() {
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { window.closeModal(); return; }
+      if (!e.ctrlKey) return;
+      switch (e.key.toLowerCase()) {
+        case 'o': e.preventDefault(); window.openVpkFile(); break;
+        case 'n': e.preventDefault(); switchView('create'); break;
+        case 'e': e.preventDefault(); if (!$('#btn-extract').disabled) window.extractAllFiles(); break;
+        case 'b': e.preventDefault(); window.buildVpk(); break;
+      }
+    });
+  }
+
+  // ── DRAG & DROP ──
+  function bindDragDrop() {
+    var overlay = $('#drop-overlay');
+    var dragCount = 0;
+
+    document.addEventListener('dragenter', function (e) {
+      e.preventDefault();
+      dragCount++;
+      overlay.classList.add('visible');
+    });
+    document.addEventListener('dragleave', function (e) {
+      e.preventDefault();
+      dragCount--;
+      if (dragCount <= 0) { overlay.classList.remove('visible'); dragCount = 0; }
+    });
+    document.addEventListener('dragover', function (e) { e.preventDefault(); });
+    document.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dragCount = 0;
+      overlay.classList.remove('visible');
+
+      var files = e.dataTransfer.files;
+      if (!files || !files.length) return;
+
+      var path = files[0].path || files[0].name;
+      if (path.toLowerCase().endsWith('.vpk')) {
+        var pass = prompt('Enter passphrase (leave blank if none):') || '';
+        openVpkByPath(path, pass);
+      } else {
+        $('#c-src').value = path;
+        switchView('create');
+        toast('Source folder set from drop.', 'info');
+      }
+    });
+  }
+
   // ── MODAL ──
   function modal(title, msg) {
     $('#modal-title').textContent = title;
@@ -363,34 +498,34 @@
     $('#modal-bg').classList.remove('open');
   };
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') window.closeModal();
-  });
-
   // ── TOGGLE PASSWORD ──
   window.toggleVis = function (id) {
-    const inp = document.getElementById(id);
+    var inp = document.getElementById(id);
     inp.type = inp.type === 'password' ? 'text' : 'password';
   };
 
   // ── UTILS ──
   function escapeHtml(s) {
-    const d = document.createElement('div');
+    var d = document.createElement('div');
     d.appendChild(document.createTextNode(s));
     return d.innerHTML;
   }
 
+  function escapeAttr(s) {
+    return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  }
+
   function formatSize(bytes) {
     if (bytes == null || bytes === 0) return '0 B';
-    const k = 1024;
-    const u = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), u.length - 1);
+    var k = 1024;
+    var u = ['B', 'KB', 'MB', 'GB'];
+    var i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), u.length - 1);
     return (bytes / Math.pow(k, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
   }
 
   function getFileIcon(name) {
-    const ext = (name.split('.').pop() || '').toLowerCase();
-    const map = {
+    var ext = (name.split('.').pop() || '').toLowerCase();
+    var map = {
       png: 'fa-solid fa-image', jpg: 'fa-solid fa-image', bmp: 'fa-solid fa-image',
       tga: 'fa-solid fa-image', dds: 'fa-solid fa-image',
       wav: 'fa-solid fa-volume-high', mp3: 'fa-solid fa-music', ogg: 'fa-solid fa-music',

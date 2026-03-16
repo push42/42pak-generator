@@ -13,6 +13,11 @@ public class BridgeService
 {
     private readonly Form _owner;
     private VpkArchive? _currentArchive;
+    private string? _currentArchivePath;
+
+    private static readonly string SettingsDir =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "42pak-generator");
+    private static readonly string RecentFilePath = Path.Combine(SettingsDir, "recent.json");
 
     public BridgeService(Form owner) => _owner = owner;
 
@@ -52,6 +57,8 @@ public class BridgeService
         {
             _currentArchive = VpkArchive.Open(filePath,
                 string.IsNullOrEmpty(passphrase) ? null : passphrase);
+            _currentArchivePath = filePath;
+            AddRecentFile(filePath);
 
             var entries = _currentArchive.Entries.Select(e => new
             {
@@ -231,6 +238,114 @@ public class BridgeService
                 count = reader.Entries.Count,
                 entries
             });
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(new { success = false, message = ex.Message });
+        }
+    }
+
+    public string ExtractSingleFile(string fileName, string outputDir, string passphrase)
+    {
+        try
+        {
+            if (_currentArchive == null)
+                return JsonSerializer.Serialize(new { success = false, message = "No archive is open." });
+
+            var data = _currentArchive.ExtractFile(fileName,
+                string.IsNullOrEmpty(passphrase) ? null : passphrase);
+            var outPath = Path.Combine(outputDir, fileName);
+            Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+            File.WriteAllBytes(outPath, data);
+
+            return JsonSerializer.Serialize(new { success = true, message = $"Extracted {fileName} to {outputDir}" });
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(new { success = false, message = ex.Message });
+        }
+    }
+
+    public string GetArchiveStats()
+    {
+        try
+        {
+            if (_currentArchive == null)
+                return JsonSerializer.Serialize(new { success = false, message = "No archive is open." });
+
+            long totalOriginal = 0, totalStored = 0;
+            foreach (var e in _currentArchive.Entries)
+            {
+                totalOriginal += e.OriginalSize;
+                totalStored += e.StoredSize;
+            }
+
+            double overallRatio = totalOriginal > 0
+                ? Math.Round((1.0 - (double)totalStored / totalOriginal) * 100, 1)
+                : 0;
+
+            long archiveSize = _currentArchivePath != null && File.Exists(_currentArchivePath)
+                ? new FileInfo(_currentArchivePath).Length
+                : 0;
+
+            return JsonSerializer.Serialize(new
+            {
+                success = true,
+                totalFiles = _currentArchive.Entries.Count,
+                totalOriginal,
+                totalStored,
+                overallRatio,
+                archiveSize
+            });
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(new { success = false, message = ex.Message });
+        }
+    }
+
+    public string GetRecentFiles()
+    {
+        try
+        {
+            if (!File.Exists(RecentFilePath))
+                return JsonSerializer.Serialize(new { success = true, files = Array.Empty<string>() });
+
+            var files = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(RecentFilePath)) ?? [];
+            files = files.Where(File.Exists).ToList();
+            return JsonSerializer.Serialize(new { success = true, files });
+        }
+        catch
+        {
+            return JsonSerializer.Serialize(new { success = true, files = Array.Empty<string>() });
+        }
+    }
+
+    private void AddRecentFile(string filePath)
+    {
+        try
+        {
+            Directory.CreateDirectory(SettingsDir);
+            List<string> files = [];
+            if (File.Exists(RecentFilePath))
+                files = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(RecentFilePath)) ?? [];
+
+            files.Remove(filePath);
+            files.Insert(0, filePath);
+            if (files.Count > 10) files = files.Take(10).ToList();
+
+            File.WriteAllText(RecentFilePath, JsonSerializer.Serialize(files));
+        }
+        catch { /* best effort */ }
+    }
+
+    public string ClearRecentFiles()
+    {
+        try
+        {
+            if (File.Exists(RecentFilePath))
+                File.Delete(RecentFilePath);
+            return JsonSerializer.Serialize(new { success = true });
         }
         catch (Exception ex)
         {

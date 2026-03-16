@@ -25,7 +25,7 @@
     <div class="sidebar-bottom">
       <a class="nav-item" data-view="settings"><i class="fa-solid fa-gear"></i>Settings</a>
       <a class="nav-item" data-view="help"><i class="fa-solid fa-circle-question"></i>Help</a>
-      <div class="sidebar-ver">v1.0.0</div>
+      <div class="sidebar-ver">v2.0.0</div>
     </div>
   </aside>
 
@@ -133,11 +133,18 @@
       <!-- MANAGE -->
       <section class="view" id="v-manage">
         <div class="toolbar">
-          <button class="btn-sm" onclick="openVpkFile()"><i class="fa-solid fa-folder-open"></i> Open VPK</button>
-          <button class="btn-sm" id="btn-extract" onclick="extractAllFiles()" disabled><i class="fa-solid fa-download"></i> Extract All</button>
+          <button class="btn-sm" onclick="openVpkFile()"><i class="fa-solid fa-folder-open"></i> Open VPK <span class="shortcut-hint">Ctrl+O</span></button>
+          <button class="btn-sm" id="btn-extract" onclick="extractAllFiles()" disabled><i class="fa-solid fa-download"></i> Extract All <span class="shortcut-hint">Ctrl+E</span></button>
           <button class="btn-sm" id="btn-validate" onclick="validateArchive()" disabled><i class="fa-solid fa-shield-halved"></i> Validate</button>
         </div>
+        <div id="archive-stats" class="stats-bar" style="display:none"></div>
         <div id="archive-meta" class="meta-bar" style="display:none"></div>
+        <div id="recent-panel" class="panel" style="margin-top:12px">
+          <div class="panel-head">Recent Archives</div>
+          <div id="recent-list" class="recent-list">
+            <div class="empty-msg"><i class="fa-solid fa-clock-rotate-left"></i><p>No recent files.</p></div>
+          </div>
+        </div>
         <div id="file-list" class="file-list">
           <div class="empty-msg"><i class="fa-solid fa-box-open"></i><p>Open a .vpk archive to inspect its contents.</p></div>
         </div>
@@ -212,7 +219,7 @@
         </div>
         <div class="panel">
           <div class="panel-head">About</div>
-          <p class="text-dim">42pak-generator v1.0.0<br>Open-source VPK archive tool for Metin2.<br>MIT License</p>
+          <p class="text-dim">42pak-generator v2.0.0<br>Open-source VPK archive tool for Metin2.<br>MIT License</p>
         </div>
       </section>
 
@@ -227,6 +234,27 @@
             <li>Enter an encryption passphrase</li>
             <li>Click <strong>Build Archive</strong></li>
           </ol>
+        </div>
+        <div class="panel">
+          <div class="panel-head">Keyboard Shortcuts</div>
+          <ul class="help-list">
+            <li><code>Ctrl+O</code> — Open VPK archive</li>
+            <li><code>Ctrl+N</code> — Switch to Create view</li>
+            <li><code>Ctrl+E</code> — Extract all files</li>
+            <li><code>Ctrl+B</code> — Build archive</li>
+            <li><code>Escape</code> — Close modal/dialog</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <div class="panel-head">CLI Usage</div>
+          <p class="text-dim">Run from the command line without launching the GUI:</p>
+          <pre class="format-block">FortyTwoPak build   &lt;sourceDir&gt; &lt;output.vpk&gt; [options]
+FortyTwoPak extract &lt;archive.vpk&gt; &lt;outputDir&gt; [--passphrase X]
+FortyTwoPak info    &lt;archive.vpk&gt; [--passphrase X]
+FortyTwoPak validate &lt;archive.vpk&gt; [--passphrase X]
+FortyTwoPak convert &lt;input.eix&gt; &lt;output.vpk&gt; [options]
+
+Options: --passphrase, --compression, --algorithm, --mangle, --author, --comment</pre>
         </div>
         <div class="panel">
           <div class="panel-head">Metin2 Integration</div>
@@ -268,6 +296,17 @@
     </div>
   </main>
 
+</div>
+
+<!-- TOAST CONTAINER -->
+<div id="toast-container"></div>
+
+<!-- DRAG-DROP OVERLAY -->
+<div id="drop-overlay">
+  <div class="drop-zone">
+    <i class="fa-solid fa-cloud-arrow-up"></i>
+    <span>Drop to open</span>
+  </div>
 </div>
 
 <!-- MODAL -->
