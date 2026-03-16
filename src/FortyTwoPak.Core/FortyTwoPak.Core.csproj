@@ -6,6 +6,9 @@
     <Nullable>enable</Nullable>
     <RootNamespace>FortyTwoPak.Core</RootNamespace>
     <AssemblyName>FortyTwoPak.Core</AssemblyName>
+    <OutputPath>..\..\build</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 
   <ItemGroup>

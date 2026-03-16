@@ -7,10 +7,16 @@ public class EixEpkConverter
     public event Action<string>? OnLog;
     public event Action<Utils.ProgressInfo>? OnProgress;
 
+    /// <summary>
+    /// Controls how the source EPK data is decompressed.
+    /// Auto (default) tries LZ4 first (FliegeV3), then falls back to LZO (40250).
+    /// </summary>
+    public EpkFormat SourceFormat { get; set; } = EpkFormat.Auto;
+
     public VpkConversionResult Convert(string eixPath, string vpkOutputPath, VpkBuildOptions options)
     {
         var result = new VpkConversionResult();
-        var reader = new EixEpkReader();
+        var reader = new EixEpkReader { Format = SourceFormat };
 
         Log($"Opening EIX: {eixPath}");
         reader.Open(eixPath);

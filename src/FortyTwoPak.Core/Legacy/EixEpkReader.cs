@@ -1,7 +1,20 @@
-using System.Runtime.InteropServices;
 using System.Text;
+using K4os.Compression.LZ4;
 
 namespace FortyTwoPak.Core.Legacy;
+
+/// <summary>
+/// Controls how EPK data blocks are decompressed.
+/// </summary>
+public enum EpkFormat
+{
+    /// <summary>Auto-detect: try LZ4 first (FliegeV3), fall back to LZO (40250).</summary>
+    Auto,
+    /// <summary>40250 system: LZO compression inside MCOZ headers.</summary>
+    Standard,
+    /// <summary>FliegeV3 system: LZ4 compression inside MCOZ headers.</summary>
+    FliegeV3
+}
 
 public class EixEpkReader
 {
@@ -10,7 +23,28 @@ public class EixEpkReader
     private const int EpkVersion = 2;
     private const int FileNameLength = 161;
 
+    // #pragma pack(push, 4) struct layout: 192 bytes per entry
+    // Offset 0:   id (4)
+    // Offset 4:   filename[161] (161)
+    // Offset 165: [3-byte pad to align DWORD]
+    // Offset 168: filename_crc (4)
+    // Offset 172: real_data_size (4)
+    // Offset 176: data_size (4)
+    // Offset 180: data_crc (4)
+    // Offset 184: data_position (4)
+    // Offset 188: compressed_type (1)
+    // Offset 189: [3-byte trailing pad]
+    // Total: 192
+    private const int StructEntrySize = 192;
+    private const int EixHeaderSize = 12; // magic(4) + version(4) + count(4)
+
     public List<EixEntry> Entries { get; } = new();
+
+    /// <summary>
+    /// Controls decompression algorithm for type-1 entries.
+    /// Default is Auto (tries LZ4 first, falls back to LZO).
+    /// </summary>
+    public EpkFormat Format { get; set; } = EpkFormat.Auto;
 
     public void Open(string eixPath)
     {
@@ -41,30 +75,30 @@ public class EixEpkReader
 
         Entries.Clear();
 
+        // Parse entries using fixed 192-byte struct size (#pragma pack(push, 4))
         for (int i = 0; i < indexCount; i++)
         {
-            var entry = new EixEntry
-            {
-                Id = reader.ReadInt32()
-            };
+            long entryStart = ms.Position;
+            byte[] entryBytes = reader.ReadBytes(StructEntrySize);
+            if (entryBytes.Length < StructEntrySize)
+                break;
 
-            byte[] nameBytes = reader.ReadBytes(FileNameLength);
-            int nullIdx = Array.IndexOf(nameBytes, (byte)0);
-            entry.FileName = Encoding.ASCII.GetString(nameBytes, 0, nullIdx >= 0 ? nullIdx : FileNameLength);
+            var entry = new EixEntry();
+            entry.Id = BitConverter.ToInt32(entryBytes, 0);
 
-            entry.FileNameCrc = reader.ReadUInt32();
-            entry.RealDataSize = reader.ReadInt32();
-            entry.DataSize = reader.ReadInt32();
-            entry.DataCrc = reader.ReadUInt32();
-            entry.DataPosition = reader.ReadInt32();
-            entry.CompressedType = reader.ReadByte();
+            // filename at offset 4, length 161 (3-byte pad follows at offset 165)
+            int nullIdx = Array.IndexOf(entryBytes, (byte)0, 4, FileNameLength);
+            int nameLen = nullIdx >= 0 ? nullIdx - 4 : FileNameLength;
+            entry.FileName = Encoding.ASCII.GetString(entryBytes, 4, nameLen);
 
-            // Skip padding to alignment
-            int entrySize = 4 + FileNameLength + 4 + 4 + 4 + 4 + 4 + 1;
-            int padding = (4 - (entrySize % 4)) % 4;
-            if (padding > 0) reader.ReadBytes(padding);
+            // Fields at their aligned offsets
+            entry.FileNameCrc = BitConverter.ToUInt32(entryBytes, 168);
+            entry.RealDataSize = BitConverter.ToInt32(entryBytes, 172);
+            entry.DataSize = BitConverter.ToInt32(entryBytes, 176);
+            entry.DataCrc = BitConverter.ToUInt32(entryBytes, 180);
+            entry.DataPosition = BitConverter.ToInt32(entryBytes, 184);
+            entry.CompressedType = entryBytes[188];
 
-            // Only include non-empty entries
             if (entry.FileNameCrc != 0 && !string.IsNullOrEmpty(entry.FileName))
                 Entries.Add(entry);
         }
@@ -87,13 +121,88 @@ public class EixEpkReader
         if (entry.CompressedType == 0)
             return rawData;
 
-        // Type 1: LZO compressed (with MCOZ header)
+        // Type 1: Compressed with MCOZ header
+        // 40250 uses LZO, FliegeV3 uses LZ4 — same header format, different compressor
         if (entry.CompressedType == 1)
-            return DecompressLzo(rawData);
+            return DecompressMcoz(rawData);
 
         return rawData;
     }
 
+    private byte[] DecompressMcoz(byte[] data)
+    {
+        if (data.Length < 16)
+            throw new InvalidDataException("MCOZ data too short.");
+
+        using var ms = new MemoryStream(data);
+        using var reader = new BinaryReader(ms);
+
+        uint fourCC = reader.ReadUInt32();
+        if (fourCC != LzoMagic)
+            throw new InvalidDataException("Expected MCOZ header in compressed data.");
+
+        uint encryptSize = reader.ReadUInt32();
+        uint compressedSize = reader.ReadUInt32();
+        uint realSize = reader.ReadUInt32();
+
+        if (encryptSize != 0)
+            throw new NotSupportedException("Data is TEA-encrypted (type 2). Cannot decompress.");
+
+        // Skip the second MCOZ marker
+        reader.ReadUInt32();
+
+        byte[] compressedData = reader.ReadBytes((int)compressedSize);
+        byte[] output = new byte[realSize];
+
+        switch (Format)
+        {
+            case EpkFormat.FliegeV3:
+                DecompressLz4(compressedData, output, (int)realSize);
+                break;
+
+            case EpkFormat.Standard:
+                Lzo1xDecompress(compressedData, output);
+                break;
+
+            case EpkFormat.Auto:
+            default:
+                // Try LZ4 first (FliegeV3), fall back to LZO (40250)
+                if (!TryDecompressLz4(compressedData, output, (int)realSize))
+                {
+                    Array.Clear(output);
+                    int lzoLen = Lzo1xDecompress(compressedData, output);
+                    if (lzoLen != (int)realSize)
+                        throw new InvalidDataException(
+                            $"Decompression size mismatch: got {lzoLen}, expected {realSize}. " +
+                            "Set Format to EpkFormat.Standard or EpkFormat.FliegeV3 explicitly.");
+                }
+                break;
+        }
+
+        return output;
+    }
+
+    private static void DecompressLz4(byte[] src, byte[] dst, int originalSize)
+    {
+        int decoded = LZ4Codec.Decode(src, 0, src.Length, dst, 0, originalSize);
+        if (decoded != originalSize)
+            throw new InvalidDataException($"LZ4 decompression size mismatch: {decoded} vs {originalSize}");
+    }
+
+    private static bool TryDecompressLz4(byte[] src, byte[] dst, int originalSize)
+    {
+        try
+        {
+            int decoded = LZ4Codec.Decode(src, 0, src.Length, dst, 0, originalSize);
+            return decoded == originalSize;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Old LZO wrapper — kept for backward compatibility but DecompressMcoz is the primary entry point.
     private static byte[] DecompressLzo(byte[] data)
     {
         if (data.Length < 16)
