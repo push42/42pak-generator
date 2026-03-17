@@ -134,6 +134,7 @@
       <section class="view" id="v-manage">
         <div class="toolbar">
           <button class="btn-sm" onclick="openVpkFile()"><i class="fa-solid fa-folder-open"></i> Open VPK <span class="shortcut-hint">Ctrl+O</span></button>
+          <button class="btn-sm" id="btn-close-archive" onclick="closeArchive()" style="display:none"><i class="fa-solid fa-arrow-left"></i> Back</button>
           <button class="btn-sm" id="btn-extract" onclick="extractAllFiles()" disabled><i class="fa-solid fa-download"></i> Extract All <span class="shortcut-hint">Ctrl+E</span></button>
           <button class="btn-sm" id="btn-validate" onclick="validateArchive()" disabled><i class="fa-solid fa-shield-halved"></i> Validate</button>
         </div>

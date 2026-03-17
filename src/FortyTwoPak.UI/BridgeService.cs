@@ -34,6 +34,9 @@ public class BridgeService
             var options = JsonSerializer.Deserialize<VpkBuildOptions>(optionsJson, _jsonOpts)
                 ?? new VpkBuildOptions();
 
+            if (!string.IsNullOrEmpty(options.Passphrase))
+                options.EnableEncryption = true;
+
             var archive = new VpkArchive();
             archive.Build(sourceDir, outputPath, options);
             _currentArchive = archive;
@@ -148,6 +151,9 @@ public class BridgeService
         {
             var options = JsonSerializer.Deserialize<VpkBuildOptions>(optionsJson, _jsonOpts)
                 ?? new VpkBuildOptions();
+
+            if (!string.IsNullOrEmpty(options.Passphrase))
+                options.EnableEncryption = true;
 
             var converter = new EixEpkConverter();
             var result = converter.Convert(eixPath, vpkOutputPath, options);

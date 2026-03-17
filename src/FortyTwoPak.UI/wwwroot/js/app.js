@@ -85,6 +85,7 @@
 
     var opts = JSON.stringify({
       passphrase: enc ? $('#c-pass').value : null,
+      enableEncryption: enc,
       compressionLevel: parseInt($('#c-comp').value, 10),
       compressionAlgorithm: $('#c-algo').value,
       mangleFileNames: $('#c-mangle').checked,
@@ -192,7 +193,22 @@
     $('#recent-panel').style.display = 'none';
     $('#btn-extract').disabled = false;
     $('#btn-validate').disabled = false;
+    $('#btn-close-archive').style.display = '';
   }
+
+  window.closeArchive = function () {
+    _currentArchive = null;
+    _allEntries = [];
+    _openPassphrase = '';
+    $('#file-list').innerHTML = '<div class="empty-msg"><i class="fa-solid fa-box-open"></i><p>Open a .vpk archive to inspect its contents.</p></div>';
+    $('#archive-meta').style.display = 'none';
+    $('#archive-stats').style.display = 'none';
+    $('#recent-panel').style.display = '';
+    $('#btn-extract').disabled = true;
+    $('#btn-validate').disabled = true;
+    $('#btn-close-archive').style.display = 'none';
+    loadRecentFiles();
+  };
 
   function loadArchiveStats() {
     try {
@@ -356,6 +372,7 @@
 
     var opts = JSON.stringify({
       passphrase: $('#cv-enc').checked ? $('#cv-pass').value : null,
+      enableEncryption: $('#cv-enc').checked,
       compressionLevel: parseInt($('#c-comp').value, 10)
     });
 
