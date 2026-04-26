@@ -57,11 +57,11 @@ A modern, open-source pak file manager for the Metin2 private server community. 
 
 # Personal advertisement <3
 ### If you are operating your own server i happily invite you to list it on our newly launched platform!
-- Free, Anti-Bot Secured, Free Vote-API, Dev Serverlisting-Integration for your platform & more
+- Free, Anti-Bot Secured, Free Vote-API, Dev Serverlisting-Integration for your platform & more -> [metin2-toplist.net](https://metin2-toplist.net/)
 
-<p align="center">
+<href href="https://metin2-toplist.net/" align="center">
   <img src="https://github.com/push42/42pak-generator/blob/master/assets/Screenshot%202026-04-26%20024832.png" alt="metin2-toplist.net" width="100%" />
-</p>
+</href>
 
 
 ---
