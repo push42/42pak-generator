@@ -22,6 +22,7 @@ A modern, open-source pak file manager for the Metin2 private server community. 
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 
+
 > **Screenshots:** See [PREVIEW.md](PREVIEW.md) for a full gallery of the GUI in both dark and light themes.
 
 ---
@@ -51,6 +52,17 @@ A modern, open-source pak file manager for the Metin2 private server community. 
 | Filename length | 160 bytes | 512 bytes (UTF-8) |
 | Key derivation | Hardcoded keys | PBKDF2-SHA512 (200k iterations) |
 | Tamper detection | None | HMAC-SHA256 whole-archive |
+
+---
+
+# Personal advertisement <3
+### If you are operating your own server i happily invite you to list it on our newly launched platform!
+- Free, Anti-Bot Secured, Free Vote-API, Dev Serverlisting-Integration for your platform & more
+
+<p align="center">
+  <img src="https://github.com/push42/42pak-generator/blob/master/assets/Screenshot%202026-04-26%20024832.png" alt="metin2-toplist.net" width="100%" />
+</p>
+
 
 ---
 
